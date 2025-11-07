@@ -1,13 +1,6 @@
 #include "dmc.h"
 using namespace Constants;
 
-// Walker::Walker(int nParticles, int dim)
-//     : localEnergy(0.0)
-// {
-//     position.resize(nParticles * dim, 0.0);
-// 	drift.resize(nParticles * dim, 0.0);
-// }
-
 DMC::DMC(double deltaTau_, int nWalkers_, int nParticles_, int dim_)
     : deltaTau(deltaTau_),
       nWalkers(nWalkers_) ,
@@ -197,7 +190,7 @@ double DMC::getLocalEnergy(const double* position) {
         Rm[i] -= FINITE_DIFFERENCE_STEP;
         double forwardPsi = std::log(std::abs(trialWaveFunction(&Rp[0])));
         double backwardPsi = std::log(std::abs(trialWaveFunction(&Rm[0])));
-        double diff = std::abs((forwardPsi - backwardPsi) / (2.0 * FINITE_DIFFERENCE_STEP));
+        double diff = (forwardPsi - backwardPsi) / (2.0 * FINITE_DIFFERENCE_STEP);
         grad += diff * diff;
         lap += forwardPsi + backwardPsi;
     }
@@ -223,10 +216,12 @@ double DMC::trialWaveFunction(const double* position) const {
     double r = std::sqrt(dx2 + dy2);
     if (r < MIN_DISTANCE) r = MIN_DISTANCE;
     double r2 = r * r;
-    double c1 = 0.25;
-    double c2 = 63.0;
-    double c3 = 0.59;
-    return std::exp(c1 * r2 * std::log(r) * std::exp(- c2 * r2) - c3 * r * (1 - std::exp(- c2 * r2)));
+    double c1 = -1.0;
+    double c2 = 0.8;
+    double c3 = 1.0;
+    return std::exp((c1 * r + c2 * r2) / (1 + c3 * r));
+    // return std::exp(-c2 * r + c3);
+    // return c1 * r2 * std::log(r) * std::exp(- c2 * r2) - c3 * r * (1 - std::exp(- c2 * r2));
 }
 
 void DMC::initializeWalkers() {
@@ -288,8 +283,8 @@ void DMC::initializeWalkers() {
 }
 
 void DMC::run() {
-    int nBlockSteps = 300 * 5;
-    int nStepsPerBlock = 10;
+    int nBlockSteps = 15000;
+    int nStepsPerBlock = 100;
 
     std::ofstream fout("dmc.dat");
 

@@ -1,7 +1,7 @@
 #include "dmc.h"
 
 int main() {
-    DMC dmc(0.01/2);
+    DMC dmc(0.001 / 10);
 
     dmc.run();
 
