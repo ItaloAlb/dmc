@@ -7,32 +7,40 @@
 //////////////////////////////////////////////////////////////////
 
 #include <vector>
-#define _USE_MATH_DEFINES
 #include <cmath>
 #include <random>
 #include <array>
 #include <deque>
 #include <omp.h>
+#include <complex>
 
 #include <iostream>
 #include <fstream>
 #include <iomanip>
 
+#include "utils.h"
+
 namespace Constants {
     const int MAX_N_WALKERS = 100000;
-    const int N_WALKERS_TARGET = 10000;
-    const int MAX_BRANCH_FACTOR = 2;
+    const int N_WALKERS_TARGET = 20000;
+    const int MAX_BRANCH_FACTOR = 4;
     const int DEFAULT_N_PARTICLE = 2;
     const int DEFAULT_N_DIM = 2;
 
     const double REFERENCE_ENERGY = -10.0;
-    const double ALPHA = 1.0 / 0.02;
+    const double ALPHA = 1.0 / 1.0;
 
     const double MIN_POPULATION_RATIO = 1e-4;
     const double MIN_DISTANCE = 1e-8;
     const double FINITE_DIFFERENCE_STEP = 1e-4;
     const double FINITE_DIFFERENCE_STEP_2 = FINITE_DIFFERENCE_STEP * FINITE_DIFFERENCE_STEP;
 }
+
+struct BlockResult {
+    double energy;
+    double variance;
+    double stdError;
+};
 
 class DMC {
     private:
@@ -51,7 +59,7 @@ class DMC {
 
         std::vector<double> getDrift(const double* position) const;
 
-        double getLocalEnergy(const double* position);
+        double getLocalEnergy(const double* position) const;
 
         void updateReferenceEnergy(double blockEnergy);
 
@@ -65,7 +73,7 @@ class DMC {
 
         void timeStep();
 
-        void blockStep(int nSteps);
+        BlockResult blockStep(int nSteps);
 
     public: 
         DMC(double deltaTau, 
