@@ -68,7 +68,8 @@ void DMC::timeStep(){
             
             // Check if the proposed move crosses a nodal surface (where Psi changes sign)
             // Moves that cross nodal surfaces are typically rejected in fixed-node DMC
-            bool crossedNodalSurface = (oldPsi > 0 && newPsi < 0) || (oldPsi < 0 && newPsi > 0);
+            // bool crossedNodalSurface = (oldPsi > 0 && newPsi < 0) || (oldPsi < 0 && newPsi > 0);
+            bool crossedNodalSurface = false;
 
             // If the nodal surface is not crossed, proceed with the Metropolis-Hastings acceptance step
             std::vector<double> newDrift(stride); // Declare newDrift here
@@ -103,7 +104,7 @@ void DMC::timeStep(){
             // The branch factor determines how many copies of the walker are made
             // It's typically an integer, calculated from the Green's function and a random number
             int branchFactor = static_cast<int>(eta + branchGreenFunction(newLocalEnergy, oldLocalEnergy));
-            branchFactor = std::min(branchFactor, MAX_BRANCH_FACTOR);
+            // branchFactor = std::min(branchFactor, MAX_BRANCH_FACTOR);
             // If the branch factor is positive, create copies of the walker
             if (branchFactor > 0) {
                 #pragma omp critical
@@ -160,10 +161,10 @@ BlockResult DMC::blockStep(int nSteps) {
     return result;
 }
 
-void DMC::updateReferenceEnergy(double energy) {
+void DMC::updateReferenceEnergy(double blockEnergy, double blockTime) {
     double ratio = static_cast<double>(nWalkers) / static_cast<double>(N_WALKERS_TARGET);
     if (ratio < MIN_POPULATION_RATIO) ratio = MIN_POPULATION_RATIO;
-    referenceEnergy = energy - ALPHA * std::log(ratio);
+    referenceEnergy = blockEnergy - 1 / blockTime * std::log(ratio);
 }
 
 double DMC::driftGreenFunction(const double* newPosition, 
@@ -308,14 +309,20 @@ double DMC::getLocalEnergy(const double* position) const {
 // rytova-keldysh + moire
 double DMC::potentialEnergy(const double* position) const {
     const double RYDBERG_FOR_HARTREE = 2.0;
-    const double RYDBERG = 13605.7;
-    const double HARTREE = RYDBERG * RYDBERG_FOR_HARTREE;
-    const double a0 = 0.5292;
-
+    const double RYDBERG = 13605.7; // em meV
+    const double HARTREE = RYDBERG * RYDBERG_FOR_HARTREE; // em meV
+    const double a0 = 0.5292; // em Angstrom
+    const double PI = 3.14159265358979323846;
+    
     const double Vh1 = (-107.1 / 1.0) / HARTREE;
     const double Vh2 = (-(107.1 - 16.9) / 1.0) / HARTREE; 
     const double Ve1 = (-17.3 / 1.0) / HARTREE;
     const double Ve2 = (-(17.3 - 3.5) / 1.0) / HARTREE;
+
+    const double E_field = -300.0  * a0 / HARTREE; 
+    const double DIL_C0 = 6.387;
+    const double DIL_C1 = 0.544;
+    const double DIL_C2 = 0.042;
 
     double a10 = 3.282;
     double a20 = 3.160;
@@ -336,7 +343,7 @@ double DMC::potentialEnergy(const double* position) const {
     double dy_eh = ye - yh;
 
     double alpha = 1.5;
-    double thickness = 6.15 / a0;
+    double thickness = 6.15 / a0; // em a0
     double eps = 14.0;
     double eps1 = 4.5;
     double eps2 = 4.5;
@@ -349,7 +356,7 @@ double DMC::potentialEnergy(const double* position) const {
     double y0 = jy0b(r_eh / r0);
 
     double Vrk = - PI / ((eps1 + eps2) * r0) * (h0 - y0);
-
+    
     const double K1x = K_mag * 1.0;
     const double K1y = K_mag * 0.0;
     const double K2x = K_mag * (-0.5);
@@ -365,36 +372,42 @@ double DMC::potentialEnergy(const double* position) const {
     double K3_dot_re = K3x * xe + K3y * ye;
 
     std::complex<double> f1_e = (std::exp(-1i * K1_dot_re) + 
-                                 std::exp(-1i * K2_dot_re) + 
-                                 std::exp(-1i * K3_dot_re)) / 3.0;
+                                   std::exp(-1i * K2_dot_re) + 
+                                   std::exp(-1i * K3_dot_re)) / 3.0;
 
     std::complex<double> f2_e = (std::exp(-1i * K1_dot_re) + 
-                                 std::exp(-1i * (K2_dot_re + theta_s_div_2)) + 
-                                 std::exp(-1i * (K3_dot_re + theta_s))) / 3.0;
+                                   std::exp(-1i * (K2_dot_re + theta_s_div_2)) + 
+                                   std::exp(-1i * (K3_dot_re + theta_s))) / 3.0;
 
     double f1_sq_e = std::norm(f1_e);
     double f2_sq_e = std::norm(f2_e);
 
-    double Ve = Ve1 * f1_sq_e + Ve2 * f2_sq_e;
+    double C_e = DIL_C0 + DIL_C1 * f1_sq_e + DIL_C2 * f2_sq_e;
+    double V_E_e = E_field * C_e * 0.5;
+
+    double Ve = Ve1 * f1_sq_e + Ve2 * f2_sq_e + V_E_e;
     
     double K1_dot_rh = K1x * xh + K1y * yh;
     double K2_dot_rh = K2x * xh + K2y * yh;
     double K3_dot_rh = K3x * xh + K3y * yh;
 
     std::complex<double> f1_h = (std::exp(-1i * K1_dot_rh) + 
-                                 std::exp(-1i * K2_dot_rh) + 
-                                 std::exp(-1i * K3_dot_rh)) / 3.0;
+                                   std::exp(-1i * K2_dot_rh) + 
+                                   std::exp(-1i * K3_dot_rh)) / 3.0;
 
     std::complex<double> f2_h = (std::exp(-1i * K1_dot_rh) + 
-                                 std::exp(-1i * (K2_dot_rh + theta_s_div_2)) + 
-                                 std::exp(-1i * (K3_dot_rh + theta_s))) / 3.0;
+                                   std::exp(-1i * (K2_dot_rh + theta_s_div_2)) + 
+                                   std::exp(-1i * (K3_dot_rh + theta_s))) / 3.0;
 
-    double f1_sq_h = std::norm(f1_h);
-    double f2_sq_h = std::norm(f2_h);
+    double f1_sq_h = std::norm(f1_h); // |f1_h|^2
+    double f2_sq_h = std::norm(f2_h); // |f2_h|^2
 
-    double Vh = Vh1 * f1_sq_h + Vh2 * f2_sq_h;
+    double C_h = DIL_C0 + DIL_C1 * f1_sq_h + DIL_C2 * f2_sq_h;
+    double V_E_h = E_field * C_h * 0.5;
+
+    double Vh = Vh1 * f1_sq_h + Vh2 * f2_sq_h + V_E_h;
     
-    return Ve + Vh;
+    return Ve + Vh + Vrk;
 }
 
 // double DMC::trialWaveFunction(const double* position) const {
@@ -464,9 +477,90 @@ double DMC::potentialEnergy(const double* position) const {
 // }
 
 // rytova keldysh + moire
+// double DMC::trialWaveFunction(const double* position) const {
+//     double alpha = 0.9;
+//     double beta = 0.15;
+
+//     double xe = position[0];
+//     double ye = position[1];
+//     double xh = position[2];
+//     double yh = position[3];
+
+//     const double a0 = 0.5292;
+
+//     double dx_eh = xe - xh;
+//     double dy_eh = ye - yh;
+//     double thickness = 6.15 / a0;
+//     double r_eh = std::sqrt(dx_eh * dx_eh + dy_eh * dy_eh + thickness * thickness);
+
+//     double argexp = - beta * r_eh;
+
+//     double a10 = 3.282;
+//     double a20 = 3.160;
+
+//     double theta = 0.5 * PI / 180;
+//     double delta = std::abs(a10 - a20) / a10;
+
+//     const double MOIRE_LENGTH = a10 / std::sqrt(theta*theta + delta*delta) / a0;
+    
+//     const double K_mag = (4.0 * PI) / (3.0 * MOIRE_LENGTH);
+
+//     const double K1x = K_mag * 1.0;
+//     const double K1y = K_mag * 0.0;
+//     const double K2x = K_mag * (-0.5);
+//     const double K2y = K_mag * (std::sqrt(3.0) / 2.0);
+//     const double K3x = K_mag * (-0.5);
+//     const double K3y = K_mag * (-std::sqrt(3.0) / 2.0);
+
+//     const double theta_s_div_2 = 2.0 * PI / 3.0;
+//     const double theta_s = 4.0 * PI / 3.0;
+
+//     double K1_dot_re = K1x * xe + K1y * ye;
+//     double K2_dot_re = K2x * xe + K2y * ye;
+//     double K3_dot_re = K3x * xe + K3y * ye;
+
+//     std::complex<double> f1_e = (std::exp(-1i * K1_dot_re) + 
+//                                  std::exp(-1i * K2_dot_re) + 
+//                                  std::exp(-1i * K3_dot_re)) / 3.0;
+
+//     std::complex<double> f2_e = (std::exp(-1i * K1_dot_re) + 
+//                                  std::exp(-1i * (K2_dot_re + theta_s_div_2)) + 
+//                                  std::exp(-1i * (K3_dot_re + theta_s))) / 3.0;
+
+//     double f1_sq_e = std::norm(f1_e);
+//     double f2_sq_e = std::norm(f2_e);
+
+//     double Ve = f1_sq_e + f2_sq_e;
+    
+//     double K1_dot_rh = K1x * xh + K1y * yh;
+//     double K2_dot_rh = K2x * xh + K2y * yh;
+//     double K3_dot_rh = K3x * xh + K3y * yh;
+
+//     std::complex<double> f1_h = (std::exp(-1i * K1_dot_rh) + 
+//                                  std::exp(-1i * K2_dot_rh) + 
+//                                  std::exp(-1i * K3_dot_rh)) / 3.0;
+
+//     std::complex<double> f2_h = (std::exp(-1i * K1_dot_rh) + 
+//                                  std::exp(-1i * (K2_dot_rh + theta_s_div_2)) + 
+//                                  std::exp(-1i * (K3_dot_rh + theta_s))) / 3.0;
+
+//     double f1_sq_h = std::norm(f1_h);
+//     double f2_sq_h = std::norm(f2_h);
+
+//     double Vh = f1_sq_h + f2_sq_h;
+
+//     double exp = std::exp(argexp);
+    
+//     return exp * (1 - alpha * (Ve + Vh));
+// }
+
 double DMC::trialWaveFunction(const double* position) const {
-    double alpha = 8.9;
-    double beta = 0.3;
+    double alpha = 4.3;
+    double beta = 4.35;
+
+    const double RYDBERG_FOR_HARTREE = 2.0;
+    const double RYDBERG = 13605.7; // em meV
+    const double HARTREE = RYDBERG * RYDBERG_FOR_HARTREE; // em meV
 
     double xe = position[0];
     double ye = position[1];
@@ -480,10 +574,15 @@ double DMC::trialWaveFunction(const double* position) const {
     double thickness = 6.15 / a0;
     double r_eh = std::sqrt(dx_eh * dx_eh + dy_eh * dy_eh + thickness * thickness);
 
-    double argexp = - beta * r_eh;
+    double argexp = - alpha * r_eh;
 
     double a10 = 3.282;
     double a20 = 3.160;
+
+    const double E_field = -300.0  * a0 / HARTREE; 
+    const double DIL_C0 = 6.387;
+    const double DIL_C1 = 0.544;
+    const double DIL_C2 = 0.042;
 
     double theta = 0.5 * PI / 180;
     double delta = std::abs(a10 - a20) / a10;
@@ -517,7 +616,10 @@ double DMC::trialWaveFunction(const double* position) const {
     double f1_sq_e = std::norm(f1_e);
     double f2_sq_e = std::norm(f2_e);
 
-    double Ve = f1_sq_e + f2_sq_e;
+    double C_e = DIL_C0 + DIL_C1 * f1_sq_e + DIL_C2 * f2_sq_e;
+    double V_E_e = (E_field) * C_e * 0.5;
+
+    double Ve = f1_sq_e + f2_sq_e + V_E_e;
     
     double K1_dot_rh = K1x * xh + K1y * yh;
     double K2_dot_rh = K2x * xh + K2y * yh;
@@ -534,67 +636,136 @@ double DMC::trialWaveFunction(const double* position) const {
     double f1_sq_h = std::norm(f1_h);
     double f2_sq_h = std::norm(f2_h);
 
-    double Vh = f1_sq_h + f2_sq_h;
+    double C_h = DIL_C0 + DIL_C1 * f1_sq_h + DIL_C2 * f2_sq_h;
+    double V_E_h = (E_field) * C_h * 0.5;
+
+    double Vh = f1_sq_h + f2_sq_h + V_E_h;
 
     double exp = std::exp(argexp);
     
-    return (1 - alpha * (Ve + Vh));
+    return exp * std::exp((- beta * (Ve + Vh)));
 }
 
-void DMC::initializeWalkers() {
-    // For simplicity and to directly address sampling from |Psi|^2,
-    // we'll use a basic Metropolis-Hastings-like approach for initialization.
+// void DMC::initializeWalkers() {
+//     // For simplicity and to directly address sampling from |Psi|^2,
+//     // we'll use a basic Metropolis-Hastings-like approach for initialization.
 
-    std::mt19937 gen = gens[0];
-    std::normal_distribution<double> dist_(0.0, 1.0);
-    std::uniform_real_distribution<double> uniform(0.0, 1.0);
+//     std::mt19937 gen = gens[0];
+//     std::normal_distribution<double> dist_(0.0, 1.0);
+//     std::uniform_real_distribution<double> uniform(0.0, 1.0);
 
-    const int nEquilibrationSteps = 1e5;
-    const double stepSize = 0.5;
-    const double L = 1.0;
+//     const int nEquilibrationSteps = 1e5;
+//     const double stepSize = 0.5;
+//     const double L = 1.0;
 
     
-    for (int i = 0; i < nWalkers; ++i) {
-        // Start with random positions for all walkers
-        for (int j = 0; j < nParticles * dim; ++j) {
-            positions[i * stride + j] = 2 * uniform(gen) * L - L;
-        }
+//     for (int i = 0; i < nWalkers; ++i) {
+//         // Start with random positions for all walkers
+//         for (int j = 0; j < nParticles * dim; ++j) {
+//             positions[i * stride + j] = 2 * uniform(gen) * L - L;
+//         }
 
-        std::vector<double> currentPosition(positions.begin() + i * stride, positions.begin() + (i + 1) * stride);
-        double currentPsiSquared = trialWaveFunction(&currentPosition[0]);
-        currentPsiSquared *= currentPsiSquared;
+//         std::vector<double> currentPosition(positions.begin() + i * stride, positions.begin() + (i + 1) * stride);
+//         double currentPsiSquared = trialWaveFunction(&currentPosition[0]);
+//         currentPsiSquared *= currentPsiSquared;
 
-        // Now, equilibrate these walkers to sample from |Psi|^2 using Metropolis-Hastings
-        for (int step = 0; step < nEquilibrationSteps; ++step) {
-            // Propose a new position
-            std::vector<double> proposedPosition(positions.begin() + i * stride, positions.begin() + (i + 1) * stride);
+//         // Now, equilibrate these walkers to sample from |Psi|^2 using Metropolis-Hastings
+//         for (int step = 0; step < nEquilibrationSteps; ++step) {
+//             // Propose a new position
+//             std::vector<double> proposedPosition(positions.begin() + i * stride, positions.begin() + (i + 1) * stride);
+//             for (int j = 0; j < nParticles * dim; ++j) {
+//                 proposedPosition[j] += dist_(gen) * stepSize; // Random walk step
+//             }
+
+//             double proposedPsiSquared = trialWaveFunction(&proposedPosition[0]);
+//             proposedPsiSquared *= proposedPsiSquared;
+
+//             // Acceptance probability
+//             double acceptanceRatio = proposedPsiSquared / currentPsiSquared;
+
+//             if (uniform(gen) < std::min(1.0, acceptanceRatio)) {
+//                 for (int j = 0; j < nParticles * dim; ++j) {
+//                     currentPosition[j] = proposedPosition[j];
+//                 }
+//                 // currentPosition = proposedPosition;
+//                 currentPsiSquared = proposedPsiSquared;
+//             }
+//             // If rejected, walker stays at currentPosition
+//         }
+
+//         std::copy(currentPosition.begin(), currentPosition.end(), positions.begin() + i * stride);
+//         // After equilibration, initialize drift and localEnergy for each walker
+//         std::vector<double> drift = getDrift(&positions[i * stride]);
+//         std::copy(drift.begin(), drift.end(), drifts.begin() + i * stride);
+//         localEnergy[i] = getLocalEnergy(&positions[i * stride]);
+//         instEnergy += localEnergy[i];
+//     }
+//     instEnergy = instEnergy / nWalkers;
+//     referenceEnergy = instEnergy;
+// }
+
+void DMC::initializeWalkers() {
+    const int nEquilibrationSteps = 1e4;
+    const double stepSize = 5.0;
+    const double L = 1.0;
+
+    instEnergy = 0.0; 
+
+    #pragma omp parallel reduction(+:instEnergy)
+    {
+        int tid = omp_get_thread_num();
+        std::mt19937& gen = gens[tid]; // Pega o gerador da thread
+        std::normal_distribution<double> dist_(0.0, 1.0);
+        std::uniform_real_distribution<double> uniform(0.0, 1.0);
+
+        #pragma omp for
+        for (int i = 0; i < nWalkers; ++i) {
+            // Start with random positions for all walkers
             for (int j = 0; j < nParticles * dim; ++j) {
-                proposedPosition[j] += dist_(gen) * stepSize; // Random walk step
+                positions[i * stride + j] = 2 * uniform(gen) * L - L;
             }
 
-            double proposedPsiSquared = trialWaveFunction(&proposedPosition[0]);
-            proposedPsiSquared *= proposedPsiSquared;
+            // Copia a posição inicial para um vetor temporário
+            std::vector<double> currentPosition(positions.begin() + i * stride, positions.begin() + (i + 1) * stride);
+            double currentPsiSquared = trialWaveFunction(&currentPosition[0]);
+            currentPsiSquared *= currentPsiSquared;
 
-            // Acceptance probability
-            double acceptanceRatio = proposedPsiSquared / currentPsiSquared;
-
-            if (uniform(gen) < std::min(1.0, acceptanceRatio)) {
+            // Equilíbrio do Metropolis-Hastings para este walker
+            for (int step = 0; step < nEquilibrationSteps; ++step) {
+                // Propose a new position
+                // NOTA: Reutilizar 'proposedPosition' pode ser mais eficiente
+                std::vector<double> proposedPosition(currentPosition.begin(), currentPosition.end());
                 for (int j = 0; j < nParticles * dim; ++j) {
-                    currentPosition[j] = proposedPosition[j];
+                    proposedPosition[j] += dist_(gen) * stepSize; // Random walk step
                 }
-                // currentPosition = proposedPosition;
-                currentPsiSquared = proposedPsiSquared;
-            }
-            // If rejected, walker stays at currentPosition
-        }
 
-        std::copy(currentPosition.begin(), currentPosition.end(), positions.begin() + i * stride);
-        // After equilibration, initialize drift and localEnergy for each walker
-        std::vector<double> drift = getDrift(&positions[i * stride]);
-        std::copy(drift.begin(), drift.end(), drifts.begin() + i * stride);
-        localEnergy[i] = getLocalEnergy(&positions[i * stride]);
-        instEnergy += localEnergy[i];
-    }
+                double proposedPsiSquared = trialWaveFunction(&proposedPosition[0]);
+                proposedPsiSquared *= proposedPsiSquared;
+
+                // Acceptance probability
+                double acceptanceRatio = proposedPsiSquared / currentPsiSquared;
+
+                if (uniform(gen) < std::min(1.0, acceptanceRatio)) {
+                    // Aceita a nova posição
+                    currentPosition = proposedPosition; // Cópia de vetores
+                    currentPsiSquared = proposedPsiSquared;
+                }
+                // Se rejeitado, o walker permanece em currentPosition
+            }
+
+            // Copia a posição equilibrada final de volta para o array principal
+            std::copy(currentPosition.begin(), currentPosition.end(), positions.begin() + i * stride);
+
+            // Inicializa drift e energia local para o walker
+            std::vector<double> drift = getDrift(&positions[i * stride]);
+            std::copy(drift.begin(), drift.end(), drifts.begin() + i * stride);
+            localEnergy[i] = getLocalEnergy(&positions[i * stride]);
+            
+            // 5. Acumula na variável 'instEnergy' privada da thread
+            instEnergy += localEnergy[i];
+        }
+    } // Fim da região paralela. O OpenMP soma todos os 'instEnergy' privados.
+
     instEnergy = instEnergy / nWalkers;
     referenceEnergy = instEnergy;
 }
@@ -648,10 +819,12 @@ void DMC::initializeWalkers() {
 // }
 
 void DMC::run() {
-    int nBlockSteps = 1500;
+    int nBlockSteps = 10000;
     int nStepsPerBlock = 100;
+
+    double blockTime = deltaTau * nStepsPerBlock;
     
-    const int runningAverageWindow = 100; 
+    const int runningAverageWindow = 500; 
 
     std::ofstream fout("dmc.dat");
     std::deque<double> energyQueue;
@@ -669,7 +842,7 @@ void DMC::run() {
 
         meanEnergy = std::accumulate(energyQueue.begin(), energyQueue.end(), 0.0) / energyQueue.size();
 
-        updateReferenceEnergy(referenceEnergy); 
+        updateReferenceEnergy(blockResult.energy, blockTime); 
 
         fout << j << " "
              << blockResult.energy << " "

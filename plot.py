@@ -20,7 +20,7 @@ def plot_energies(filename):
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.show()
+    plt.savefig("Energy_per_step.png", dpi=300)
 
 
 def plot_population(filename):
@@ -36,7 +36,7 @@ def plot_population(filename):
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.show()
+    plt.savefig("nWalkers_per_step.png", dpi=300)
 
 
 if __name__ == "__main__":

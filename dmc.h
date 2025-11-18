@@ -23,12 +23,9 @@
 namespace Constants {
     const int MAX_N_WALKERS = 100000;
     const int N_WALKERS_TARGET = 20000;
-    const int MAX_BRANCH_FACTOR = 4;
+    // const int MAX_BRANCH_FACTOR = 4;
     const int DEFAULT_N_PARTICLE = 2;
     const int DEFAULT_N_DIM = 2;
-
-    const double REFERENCE_ENERGY = -10.0;
-    const double ALPHA = 1.0 / 1.0;
 
     const double MIN_POPULATION_RATIO = 1e-4;
     const double MIN_DISTANCE = 1e-8;
@@ -61,7 +58,7 @@ class DMC {
 
         double getLocalEnergy(const double* position) const;
 
-        void updateReferenceEnergy(double blockEnergy);
+        void updateReferenceEnergy(double blockEnergy, double blockTime);
 
         double potentialEnergy(const double* position) const;
 
