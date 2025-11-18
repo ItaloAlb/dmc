@@ -1,6 +1,7 @@
 #include "dmc.h"
 
 using namespace Constants;
+using namespace Moire;
 using namespace std::complex_literals;
 
 DMC::DMC(double deltaTau_, int nWalkers_, int nParticles_, int dim_)
@@ -308,32 +309,6 @@ double DMC::getLocalEnergy(const double* position) const {
 
 // rytova-keldysh + moire
 double DMC::potentialEnergy(const double* position) const {
-    const double RYDBERG_FOR_HARTREE = 2.0;
-    const double RYDBERG = 13605.7; // em meV
-    const double HARTREE = RYDBERG * RYDBERG_FOR_HARTREE; // em meV
-    const double a0 = 0.5292; // em Angstrom
-    const double PI = 3.14159265358979323846;
-    
-    const double Vh1 = (-107.1 / 1.0) / HARTREE;
-    const double Vh2 = (-(107.1 - 16.9) / 1.0) / HARTREE; 
-    const double Ve1 = (-17.3 / 1.0) / HARTREE;
-    const double Ve2 = (-(17.3 - 3.5) / 1.0) / HARTREE;
-
-    const double E_field = -300.0  * a0 / HARTREE; 
-    const double DIL_C0 = 6.387;
-    const double DIL_C1 = 0.544;
-    const double DIL_C2 = 0.042;
-
-    double a10 = 3.282;
-    double a20 = 3.160;
-
-    double theta = 0.5 * PI / 180;
-    double delta = std::abs(a10 - a20) / a10;
-
-    const double MOIRE_LENGTH = a10 / std::sqrt(theta*theta + delta*delta) / a0;
-    
-    const double K_mag = (4.0 * PI) / (3.0 * MOIRE_LENGTH);
-
     double xe = position[0];
     double ye = position[1];
     double xh = position[2];
@@ -342,30 +317,12 @@ double DMC::potentialEnergy(const double* position) const {
     double dx_eh = xe - xh;
     double dy_eh = ye - yh;
 
-    double alpha = 1.5;
-    double thickness = 6.15 / a0; // em a0
-    double eps = 14.0;
-    double eps1 = 4.5;
-    double eps2 = 4.5;
-
     double r_eh = std::sqrt(dx_eh * dx_eh + dy_eh * dy_eh + thickness * thickness);
-
-    double r0 = alpha * thickness * eps / (eps1 + eps2);
 
     double h0 = stvh0(r_eh / r0);
     double y0 = jy0b(r_eh / r0);
 
     double Vrk = - PI / ((eps1 + eps2) * r0) * (h0 - y0);
-    
-    const double K1x = K_mag * 1.0;
-    const double K1y = K_mag * 0.0;
-    const double K2x = K_mag * (-0.5);
-    const double K2y = K_mag * (std::sqrt(3.0) / 2.0);
-    const double K3x = K_mag * (-0.5);
-    const double K3y = K_mag * (-std::sqrt(3.0) / 2.0);
-
-    const double theta_s_div_2 = 2.0 * PI / 3.0;
-    const double theta_s = 4.0 * PI / 3.0;
 
     double K1_dot_re = K1x * xe + K1y * ye;
     double K2_dot_re = K2x * xe + K2y * ye;
@@ -399,8 +356,8 @@ double DMC::potentialEnergy(const double* position) const {
                                    std::exp(-1i * (K2_dot_rh + theta_s_div_2)) + 
                                    std::exp(-1i * (K3_dot_rh + theta_s))) / 3.0;
 
-    double f1_sq_h = std::norm(f1_h); // |f1_h|^2
-    double f2_sq_h = std::norm(f2_h); // |f2_h|^2
+    double f1_sq_h = std::norm(f1_h);
+    double f2_sq_h = std::norm(f2_h);
 
     double C_h = DIL_C0 + DIL_C1 * f1_sq_h + DIL_C2 * f2_sq_h;
     double V_E_h = E_field * C_h * 0.5;
@@ -555,51 +512,21 @@ double DMC::potentialEnergy(const double* position) const {
 // }
 
 double DMC::trialWaveFunction(const double* position) const {
-    double alpha = 4.3;
-    double beta = 4.35;
-
-    const double RYDBERG_FOR_HARTREE = 2.0;
-    const double RYDBERG = 13605.7; // em meV
-    const double HARTREE = RYDBERG * RYDBERG_FOR_HARTREE; // em meV
+    double c1 = 0.1;
+    double c2 = 0.1;
+    double c3 = 0.9;
 
     double xe = position[0];
     double ye = position[1];
     double xh = position[2];
     double yh = position[3];
 
-    const double a0 = 0.5292;
-
     double dx_eh = xe - xh;
     double dy_eh = ye - yh;
-    double thickness = 6.15 / a0;
+
     double r_eh = std::sqrt(dx_eh * dx_eh + dy_eh * dy_eh + thickness * thickness);
 
-    double argexp = - alpha * r_eh;
-
-    double a10 = 3.282;
-    double a20 = 3.160;
-
-    const double E_field = -300.0  * a0 / HARTREE; 
-    const double DIL_C0 = 6.387;
-    const double DIL_C1 = 0.544;
-    const double DIL_C2 = 0.042;
-
-    double theta = 0.5 * PI / 180;
-    double delta = std::abs(a10 - a20) / a10;
-
-    const double MOIRE_LENGTH = a10 / std::sqrt(theta*theta + delta*delta) / a0;
-    
-    const double K_mag = (4.0 * PI) / (3.0 * MOIRE_LENGTH);
-
-    const double K1x = K_mag * 1.0;
-    const double K1y = K_mag * 0.0;
-    const double K2x = K_mag * (-0.5);
-    const double K2y = K_mag * (std::sqrt(3.0) / 2.0);
-    const double K3x = K_mag * (-0.5);
-    const double K3y = K_mag * (-std::sqrt(3.0) / 2.0);
-
-    const double theta_s_div_2 = 2.0 * PI / 3.0;
-    const double theta_s = 4.0 * PI / 3.0;
+    double argexp = - c1 * r_eh;
 
     double K1_dot_re = K1x * xe + K1y * ye;
     double K2_dot_re = K2x * xe + K2y * ye;
@@ -643,7 +570,7 @@ double DMC::trialWaveFunction(const double* position) const {
 
     double exp = std::exp(argexp);
     
-    return exp * std::exp((- beta * (Ve + Vh)));
+    return exp * std::exp(- c2 * (Ve + Vh) - c3 * (V_E_e + V_E_h));
 }
 
 // void DMC::initializeWalkers() {
